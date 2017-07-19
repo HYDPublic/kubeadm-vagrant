@@ -265,7 +265,7 @@ Vagrant.configure("2") do |config|
     env_network_provider = get_environment_variable('network_provider')
     network_provider = env_network_provider.nil? ? 'flannel' : env_network_provider.downcase
 
-    fail "#{network_provider} is not a supported network provider" unless %w(flannel calico).include?(network_provider)
+    fail "#{network_provider} is not a supported network provider" unless %w(flannel calico none).include?(network_provider)
 
     if network_provider == 'flannel'
       c.vm.provision 'install-flannel', type: 'shell' do |s|
@@ -324,7 +324,7 @@ Vagrant.configure("2") do |config|
           kubectl create -f $HOME/calico.yaml
         EOH
       end # c.vm.provision 'install-calico'
-    end # if/elsif
+    end # if network_provider
   end # config.vm.define master_vm
 
   worker_count = 3

@@ -73,7 +73,7 @@ Cluster sizing variables
 * `worker_count`: configures the number of worker VMs that will be built (default **3**).
 * `cpu_count`: configures the number of CPUs each VM will have (default **1**).
 * `memory_mb`: configures the amount of memory in MB each VM will have (default **1024**).
-* `drive_size`: configures the size of an additional volume the will be created in the VM (default **20480**).
+* `disk_size`: configures the size of the additional volumes that will be created in the VM (default **20480**).
 
 Kubernetes variables
 ---

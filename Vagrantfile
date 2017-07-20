@@ -11,8 +11,26 @@ require 'securerandom'
 require 'uri'
 
 def get_environment_variable(envvar)
-  ENV[envvar] || ENV[envvar.upcase] || ENV[envvar.downcase]
+  var = ENV[envvar] || ENV[envvar.upcase] || ENV[envvar.downcase]
+  var.to_i.zero? ? var : var.to_i
 end
+
+# collect all environment variables we care about in one place
+$kubernetes_version = get_environment_variable('kubernetes_version')
+$repo_prefix = get_environment_variable('repo_prefix')
+$disk_size = get_environment_variable('disk_size') || 20480
+$http_proxy = get_environment_variable('http_proxy')
+$https_proxy = get_environment_variable('https_proxy')
+$no_proxy = get_environment_variable('no_proxy')
+$cacerts_dir = get_environment_variable('cacerts_dir')
+$network_provider = get_environment_variable('network_provider')
+$swap_size = get_environment_variable('swap_size') || 2048
+$master_cpu_count = get_environment_variable('master_cpu_count') || 1
+$master_memory_mb = get_environment_variable('master_memory_mb') || 1024
+$worker_count = get_environment_variable('worker_count') || 3
+$worker_cpu_count = get_environment_variable('worker_cpu_count') || 1
+$worker_memory_mb = get_environment_variable('worker_memory_mb') || 1024
+$skip_preflight_checks = get_environment_variable('skip_preflight_checks')
 
 def apply_vm_hardware_customizations(provider)
   provider.linked_clone = true
@@ -50,8 +68,6 @@ class VagrantPlugins::ProviderVirtualBox::Action::SetName
       end
     end
 
-    disk_size = get_environment_variable('disk_size') || '20480'
-
     # add 2 to idx because sda is the boot disk and sdb is the cloud-init config drive
     # (without which boot will stall for up to 5 minutes)
     ('c'..'f').each_with_index do |disk, idx|
@@ -62,7 +78,7 @@ class VagrantPlugins::ProviderVirtualBox::Action::SetName
       if File.exist?(disk_file)
         ui.info "Disk already exists"
       else
-        driver.execute("createmedium", "disk", "--filename", disk_file, "--size", disk_size, "--format", "vmdk")
+        driver.execute("createmedium", "disk", "--filename", disk_file, "--size", $disk_size.to_s, "--format", "vmdk")
         driver.execute('storageattach', uuid, '--storagectl', 'SCSI', '--port', (idx+2).to_s, '--type', 'hdd', '--medium', disk_file)
       end
     end
@@ -70,8 +86,6 @@ class VagrantPlugins::ProviderVirtualBox::Action::SetName
     original_call(env)
   end
 end
-
-kubernetes_version = get_environment_variable('kubernetes_version')
 
 $generic_install_script = <<-EOH
   #!/bin/sh
@@ -96,13 +110,13 @@ $generic_install_script = <<-EOH
 EOH
 
 $generic_install_script << \
-  if kubernetes_version
+  if $kubernetes_version
     <<-EOH
   apt-get install -y \
   docker.io \
-  kubelet=#{kubernetes_version}-00 \
-  kubeadm=#{kubernetes_version}-00 \
-  kubectl=#{kubernetes_version}-00 \
+  kubelet=#{$kubernetes_version}-00 \
+  kubeadm=#{$kubernetes_version}-00 \
+  kubectl=#{$kubernetes_version}-00 \
   kubernetes-cni
     EOH
   else
@@ -127,14 +141,14 @@ Vagrant.configure("2") do |config|
   master_vm = 'master'
   master_vm_ip = '192.168.77.2'
   pod_network = '10.244.0.0/16'
-  repo_prefix = get_environment_variable('repo_prefix')
+
 
   # retain base repo prefix for pulling flannel containers
   kubeadm_env = \
-    if repo_prefix
+    if $repo_prefix
       {
-        "REPO_PREFIX" => repo_prefix,
-        "KUBE_REPO_PREFIX" => repo_prefix + "/gcr.io/google_containers"
+        "REPO_PREFIX" => $repo_prefix,
+        "KUBE_REPO_PREFIX" => $repo_prefix + "/gcr.io/google_containers"
       }
     else
       {}
@@ -142,34 +156,29 @@ Vagrant.configure("2") do |config|
 
   update_ca_certificates_script = ''
 
-  http_proxy = get_environment_variable('http_proxy')
-  https_proxy = get_environment_variable('https_proxy')
-  no_proxy = get_environment_variable('no_proxy')
-
-  if Vagrant.has_plugin?("vagrant-proxyconf") && (http_proxy || https_proxy || no_proxy)
+  if Vagrant.has_plugin?("vagrant-proxyconf") && ($http_proxy || $https_proxy || $no_proxy)
     # copy proxy settings from the Vagrant environment into the VMs
-    (no_proxy = [no_proxy, master_vm_ip].join(',')) unless no_proxy.nil?
-
     # vagrant-proxyconf will not configure anything if everything is nil
-    config.proxy.http = http_proxy
-    config.proxy.https = https_proxy
-    config.proxy.no_proxy = no_proxy
+    config.proxy.http = $http_proxy
+    config.proxy.https = $https_proxy
+    unless $no_proxy.nil?
+      config.proxy.no_proxy = [$no_proxy, master_vm_ip].join(',')
+    end
 
     # look for another envvar that points to a directory with CA certs
-    env_cacerts_dir = get_environment_variable('cacerts_dir')
-    if env_cacerts_dir
-      cacerts_dir = Dir.new(env_cacerts_dir)
-      files_in_cacerts_dir = cacerts_dir.entries.select{ |e| not ['.', '..'].include? e }
+    if $cacerts_dir
+      c_dir = Dir.new($cacerts_dir)
+      files_in_cacerts_dir = c_dir.entries.select{ |e| not ['.', '..'].include? e }
       files_in_cacerts_dir.each do |f|
-        next if File.directory?(File.join(cacerts_dir, f))
+        next if File.directory?(File.join(c_dir, f))
         begin
           unless f.end_with? '.crt'
-            fail "All files in #{env_cacerts_dir} must end in .crt due to update-ca-certificates restrictions."
+            fail "All files in #{$cacerts_dir} must end in .crt due to update-ca-certificates restrictions."
           end
           # read in the certificate and normalize DOS line endings to UNIX
-          cert_raw = File.read(File.join(env_cacerts_dir, f)).gsub(/\r\n/, "\n")
+          cert_raw = File.read(File.join($cacerts_dir, f)).gsub(/\r\n/, "\n")
           if cert_raw.scan('-----BEGIN CERTIFICATE-----').length > 1
-            fail "Multiple certificates detected in #{File.join(env_cacerts_dir, f)}, please split them into separate certificates."
+            fail "Multiple certificates detected in #{File.join($cacerts_dir, f)}, please split them into separate certificates."
           end
           cert = OpenSSL::X509::Certificate.new(cert_raw) # test that the cert is valid
           dest_cert_path = File.join('/usr/local/share/ca-certificates', f)
@@ -177,13 +186,13 @@ Vagrant.configure("2") do |config|
             echo -ne "#{cert_raw}" > #{dest_cert_path}
           EOH
         rescue OpenSSL::X509::CertificateError
-          fail "Certificate #{File.join(env_cacerts_dir, f)} is not a valid PEM certificate, aborting."
+          fail "Certificate #{File.join($cacerts_dir, f)} is not a valid PEM certificate, aborting."
         end # begin/rescue
       end # files_in_cacerts_dir.each
       update_ca_certificates_script << <<-EOH
         update-ca-certificates
       EOH
-    end # if env_cacerts_dir
+    end # if $cacerts_dir
   end # if Vagrant.has_plugin?
 
   config.vm.box = "ubuntu/xenial64"
@@ -196,20 +205,20 @@ Vagrant.configure("2") do |config|
   config.vm.provision 'configure-swap-space', type: 'shell' do |s|
     s.inline = <<-EOH
       #!/bin/bash
-      swap_path='/swap'
-      swap_size="#{ENV['vm_swap_size'] ||= '2048'}M"
+      SWAP_PATH='/swap'
+      SWAP_SIZE="#{$swap_size}M"
       # This could be a re-provision
-      if grep -qw "^${swap_path}" /proc/swaps ; then
-        swapoff "$swap_path"
+      if grep -qw "^${SWAP_PATH}" /proc/swaps ; then
+        swapoff "$SWAP_PATH"
       fi
-      fallocate -l $swap_size "$swap_path"
-      truncate -s $swap_size "$swap_path"
-      chmod 600 "$swap_path"
-      mkswap -f "$swap_path"
+      fallocate -l $SWAP_SIZE "$SWAP_PATH"
+      truncate -s $SWAP_SIZE "$SWAP_PATH"
+      chmod 600 "$SWAP_PATH"
+      mkswap -f "$SWAP_PATH"
       /bin/sync
-      swapon "$swap_path"
-      if ! grep -qw "^${swap_path}" /etc/fstab ; then
-        echo "$swap_path none swap defaults 0 0" | tee -a /etc/fstab
+      swapon "$SWAP_PATH"
+      if ! grep -qw "^${SWAP_PATH}" /etc/fstab ; then
+        echo "$SWAP_PATH none swap defaults 0 0" | tee -a /etc/fstab
       fi
     EOH
   end
@@ -226,17 +235,9 @@ Vagrant.configure("2") do |config|
     c.vm.hostname = master_vm
     c.vm.network 'private_network', ip: master_vm_ip
 
-    cpu_count = 1
-    env_cpu_count = ENV['master_cpu_count'].to_i
-    (cpu_count = env_cpu_count) unless env_cpu_count.zero?
-
-    memory_mb = 1024
-    env_memory_mb = ENV['master_memory_mb'].to_i
-    (memory_mb = env_memory_mb) unless env_memory_mb.zero?
-
     c.vm.provider "virtualbox" do |vb|
-      vb.cpus = cpu_count
-      vb.memory = memory_mb
+      vb.cpus = $master_cpu_count
+      vb.memory = $master_memory_mb
 
       apply_vm_hardware_customizations(vb)
     end
@@ -244,8 +245,8 @@ Vagrant.configure("2") do |config|
     c.vm.provision 'kubeadm-init', type: 'shell' do |s|
       cmd = "kubeadm init --apiserver-advertise-address #{master_vm_ip} --pod-network-cidr #{pod_network} --token #{kubeadm_token}"
       s.env = kubeadm_env
-      if kubernetes_version
-        cmd += " --kubernetes-version=v#{kubernetes_version}"
+      if $kubernetes_version
+        cmd += " --kubernetes-version=v#{$kubernetes_version}"
       end
       s.inline = cmd
     end
@@ -262,8 +263,7 @@ Vagrant.configure("2") do |config|
       EOH
     end
 
-    env_network_provider = get_environment_variable('network_provider')
-    network_provider = env_network_provider.nil? ? 'flannel' : env_network_provider.downcase
+    network_provider = $network_provider.nil? ? 'flannel' : $network_provider.downcase
 
     fail "#{network_provider} is not a supported network provider" unless %w(flannel calico none).include?(network_provider)
 
@@ -291,7 +291,7 @@ Vagrant.configure("2") do |config|
           # substitute in the interface on our VM as the Flannel interface
           sed -r -i -e "s|command: \\[ \\"/opt/bin/flanneld\\", \\"--ip-masq\\", \\"--kube-subnet-mgr\\" \\]|command: \\[ \\"/opt/bin/flanneld\\", \\"--ip-masq\\", \\"--kube-subnet-mgr\\", \\"--iface\\", \\"${FLANNEL_IFACE}\\" \\]|" $HOME/kube-flannel.yml
 
-          if [[ "$KUBE_REPO_PREFIX" != "" ]]; then
+          if [[ "$REPO_PREFIX" != "" ]]; then
             sed -i -e "s|quay.io/coreos/flannel:|${REPO_PREFIX}/quay.io/coreos/flannel:|g" $HOME/kube-flannel.yml
           fi
 
@@ -327,31 +327,19 @@ Vagrant.configure("2") do |config|
     end # if network_provider
   end # config.vm.define master_vm
 
-  worker_count = 3
-  env_worker_count = ENV['worker_count'].to_i
-  (worker_count = env_worker_count) unless env_worker_count.zero?
-
-  worker_count.times do |i|
+  $worker_count.times do |i|
     idx = i+1
 
     vm_name = "w#{idx}"
     vm_ip = (master_vm_ip.split('.')[0..2] + [10+idx]).join('.')
-
-    cpu_count = 1
-    env_cpu_count = ENV['worker_cpu_count'].to_i
-    (cpu_count = env_cpu_count) unless env_cpu_count.zero?
-
-    memory_mb = 1024
-    env_memory_mb = ENV['worker_memory_mb'].to_i
-    (memory_mb = env_memory_mb) unless env_memory_mb.zero?
 
     config.vm.define vm_name do |c|
       c.vm.hostname = vm_name
       c.vm.network "private_network", ip: vm_ip
 
       c.vm.provider "virtualbox" do |vb|
-        vb.cpus = cpu_count
-        vb.memory = memory_mb
+        vb.cpus = $worker_cpu_count
+        vb.memory = $worker_memory_mb
 
         apply_vm_hardware_customizations(vb)
       end
@@ -360,7 +348,7 @@ Vagrant.configure("2") do |config|
         kubeadm_join_cmd = "sudo kubeadm join --token #{kubeadm_token}"
 
         # if this envvar is defined in any way, skip kubeadm preflight checks
-        kubeadm_join_cmd += ' --skip-preflight-checks' if get_environment_variable('skip_preflight_checks')
+        kubeadm_join_cmd += ' --skip-preflight-checks' if $skip_preflight_checks
         kubeadm_join_cmd += " #{master_vm_ip}:6443"
 
         s.env = kubeadm_env

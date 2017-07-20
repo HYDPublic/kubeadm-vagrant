@@ -8,6 +8,8 @@ Required Vagrant plugins
 
 Required Vagrant plugins can be installed with `vagrant plugin install`. **If you are behind proxies that perform TLS interception**, you may need to add the required CA certificates to Vagrant's certificate store. This can usually be found at `/opt/vagrant/embedded/cacert.pem`, but may vary depending on your OS and Vagrant installation method.
 
+Required plugins
+---
 * **vagrant-hostmanager**
 * **vagrant-proxyconf**
 
@@ -75,7 +77,9 @@ Cluster sizing variables
 
 Kubernetes variables
 ---
+* `enable_podpreset_admission_controller`: enable the PodPreset admission controller so that PodPreset resources can be injected into pods (https://kubernetes.io/docs/tasks/inject-data-application/podpreset/)
+  * **NOTE**: Kubernetes will still accept PodPreset resources even without this feature enabled, but they will not be injected into the pods
 * `kube_version`: version number of Kubernetes to install (currently used both for apt packages and container tags)
 * `network_provider`: pod networking provider to use, options are **calico** or **flannel** (default is **flannel**)
-* `repo_prefix`: prefix used for container names within kube cluster (if you want to pull from a local registry rather than the Internet)
+* `repo_prefix`: prefix used for container names within the Kubernetes cluster (if you want to pull from a local registry rather than the Internet)
 * `skip_preflight_checks`: skip preflight checks if this variable exists (can be set to anything)

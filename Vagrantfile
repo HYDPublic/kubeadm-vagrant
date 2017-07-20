@@ -31,6 +31,7 @@ $worker_count = get_environment_variable('worker_count') || 3
 $worker_cpu_count = get_environment_variable('worker_cpu_count') || 1
 $worker_memory_mb = get_environment_variable('worker_memory_mb') || 1024
 $skip_preflight_checks = get_environment_variable('skip_preflight_checks')
+$enable_podpreset_admission_controller = get_environment_variable('enable_podpreset_admission_controller')
 
 def apply_vm_hardware_customizations(provider)
   provider.linked_clone = true
@@ -325,6 +326,19 @@ Vagrant.configure("2") do |config|
         EOH
       end # c.vm.provision 'install-calico'
     end # if network_provider
+
+    if $enable_podpreset_admission_controller
+      c.vm.provision 'enable-podpreset-admission-controller', type: 'shell' do |s|
+        s.inline = <<-EOH
+          #!/bin/sh
+
+          KUBE_APISERVER_MANIFEST=/etc/kubernetes/manifests/kube-apiserver.yaml
+          cp $KUBE_APISERVER_MANIFEST $KUBE_APISERVER_MANIFEST.backup
+
+          sed -i -e '/admission-control=/s/$/,PodPreset/' $KUBE_APISERVER_MANIFEST
+        EOH
+      end # c.vm.provision
+    end # if $enable_podpreset_admission_controller
   end # config.vm.define master_vm
 
   $worker_count.times do |i|

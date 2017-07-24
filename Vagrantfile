@@ -12,7 +12,11 @@ require 'uri'
 
 def get_environment_variable(envvar)
   var = ENV[envvar] || ENV[envvar.upcase] || ENV[envvar.downcase]
-  var.to_i.zero? ? var : var.to_i
+  if (var =~ /^\d+$/).nil?
+    var
+  else
+    var.to_i
+  end
 end
 
 # collect all environment variables we care about in one place

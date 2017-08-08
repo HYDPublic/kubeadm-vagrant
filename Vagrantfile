@@ -6,17 +6,14 @@
 
 # See README.md for relevant environment variables and configuration settings
 
+require 'ipaddr'
 require 'openssl'
 require 'securerandom'
 require 'uri'
 
 def get_environment_variable(envvar)
   var = ENV[envvar] || ENV[envvar.upcase] || ENV[envvar.downcase]
-  if (var =~ /^\d+$/).nil?
-    var
-  else
-    var.to_i
-  end
+  (var =~ /^\d+$/).nil? ? var : var.to_i
 end
 
 # collect all environment variables we care about in one place
@@ -36,6 +33,8 @@ $worker_cpu_count = get_environment_variable('worker_cpu_count') || 1
 $worker_memory_mb = get_environment_variable('worker_memory_mb') || 1024
 $skip_preflight_checks = get_environment_variable('skip_preflight_checks')
 $enable_podpreset_admission_controller = get_environment_variable('enable_podpreset_admission_controller')
+$cluster_id = get_environment_variable('cluster_id')
+$master_vm_ip = get_environment_variable('master_vm_ip') || '192.168.77.2'
 
 def apply_vm_hardware_customizations(provider)
   provider.linked_clone = true
@@ -143,10 +142,8 @@ EOH
 
 Vagrant.configure("2") do |config|
   kubeadm_token = "#{SecureRandom.hex[0...6]}.#{SecureRandom.hex[0...16]}"
-  master_vm = 'master'
-  master_vm_ip = '192.168.77.2'
+  master_vm = $cluster_id ? "#{$cluster_id}-master" : 'master'
   pod_network = '10.244.0.0/16'
-
 
   # retain base repo prefix for pulling flannel containers
   kubeadm_env = \
@@ -167,7 +164,7 @@ Vagrant.configure("2") do |config|
     config.proxy.http = $http_proxy
     config.proxy.https = $https_proxy
     unless $no_proxy.nil?
-      config.proxy.no_proxy = [$no_proxy, master_vm_ip].join(',')
+      config.proxy.no_proxy = [$no_proxy, $master_vm_ip].join(',')
     end
 
     # look for another envvar that points to a directory with CA certs
@@ -238,7 +235,7 @@ Vagrant.configure("2") do |config|
 
   config.vm.define master_vm do |c|
     c.vm.hostname = master_vm
-    c.vm.network 'private_network', ip: master_vm_ip
+    c.vm.network "private_network", ip: $master_vm_ip
 
     c.vm.provider "virtualbox" do |vb|
       vb.cpus = $master_cpu_count
@@ -248,7 +245,7 @@ Vagrant.configure("2") do |config|
     end
 
     c.vm.provision 'kubeadm-init', type: 'shell' do |s|
-      cmd = "kubeadm init --apiserver-advertise-address #{master_vm_ip} --pod-network-cidr #{pod_network} --token #{kubeadm_token}"
+      cmd = "kubeadm init --apiserver-advertise-address #{$master_vm_ip} --pod-network-cidr #{pod_network} --token #{kubeadm_token}"
       s.env = kubeadm_env
       if $kubernetes_version
         cmd += " --kubernetes-version=v#{$kubernetes_version}"
@@ -291,7 +288,7 @@ Vagrant.configure("2") do |config|
             curl -s -O https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
           fi
 
-          export FLANNEL_IFACE=$(ip a | grep #{master_vm_ip} | awk '{ print $NF }')
+          export FLANNEL_IFACE=$(ip a | grep #{$master_vm_ip} | awk '{ print $NF }')
 
           # substitute in the interface on our VM as the Flannel interface
           sed -r -i -e "s|command: \\[ \\"/opt/bin/flanneld\\", \\"--ip-masq\\", \\"--kube-subnet-mgr\\" \\]|command: \\[ \\"/opt/bin/flanneld\\", \\"--ip-masq\\", \\"--kube-subnet-mgr\\", \\"--iface\\", \\"${FLANNEL_IFACE}\\" \\]|" $HOME/kube-flannel.yml
@@ -348,8 +345,9 @@ Vagrant.configure("2") do |config|
   $worker_count.times do |i|
     idx = i+1
 
-    vm_name = "w#{idx}"
-    vm_ip = (master_vm_ip.split('.')[0..2] + [10+idx]).join('.')
+    vm_name = $cluster_id ? "#{$cluster_id}-w#{idx}" : "w#{idx}"
+    split_master_ip = $master_vm_ip.split('.')
+    vm_ip = (split_master_ip[0..2] + [(split_master_ip[3].to_i)+idx]).join('.')
 
     config.vm.define vm_name do |c|
       c.vm.hostname = vm_name
@@ -367,7 +365,7 @@ Vagrant.configure("2") do |config|
 
         # if this envvar is defined in any way, skip kubeadm preflight checks
         kubeadm_join_cmd += ' --skip-preflight-checks' if $skip_preflight_checks
-        kubeadm_join_cmd += " #{master_vm_ip}:6443"
+        kubeadm_join_cmd += " #{$master_vm_ip}:6443"
 
         s.env = kubeadm_env
         s.inline = kubeadm_join_cmd

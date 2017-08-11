@@ -36,6 +36,24 @@ $enable_podpreset_admission_controller = get_environment_variable('enable_podpre
 $cluster_id = get_environment_variable('cluster_id')
 $master_vm_ip = get_environment_variable('master_vm_ip') || '192.168.77.2'
 
+# $kubernetes_version can be specified as e.g. 1.7.3 to get 1.7.3-00 packages and v1.7.3 containers automatically
+# or you can add the -XX on yourself to get 1.7.3-XX packages without affecting the container version
+def get_kubernetes_version(context)
+  split_kube_version = $kubernetes_version.split('-')
+
+  if context == :package
+    if split_kube_version.length > 1
+      $kubernetes_version
+    else
+      split_kube_version[0]
+    end
+  elsif context == :container
+    "v#{split_kube_version[0]}"
+  else
+    fail "#{context} is not a valid context for Kubernetes version"
+  end
+end
+
 def apply_vm_hardware_customizations(provider)
   provider.linked_clone = true
 
@@ -118,9 +136,9 @@ $generic_install_script << \
     <<-EOH
   apt-get install -y \
   docker.io \
-  kubelet=#{$kubernetes_version}-00 \
-  kubeadm=#{$kubernetes_version}-00 \
-  kubectl=#{$kubernetes_version}-00 \
+  kubelet=#{get_kubernetes_version(:package)} \
+  kubeadm=#{get_kubernetes_version(:package)} \
+  kubectl=#{get_kubernetes_version(:package)} \
   kubernetes-cni
     EOH
   else
@@ -248,7 +266,7 @@ Vagrant.configure("2") do |config|
       cmd = "kubeadm init --apiserver-advertise-address #{$master_vm_ip} --pod-network-cidr #{pod_network} --token #{kubeadm_token}"
       s.env = kubeadm_env
       if $kubernetes_version
-        cmd += " --kubernetes-version=v#{$kubernetes_version}"
+        cmd += " --kubernetes-version=#{get_kubernetes_version(:container)}"
       end
       s.inline = cmd
     end

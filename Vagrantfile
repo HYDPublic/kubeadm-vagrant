@@ -358,6 +358,28 @@ Vagrant.configure("2") do |config|
         EOH
       end # c.vm.provision
     end # if $enable_podpreset_admission_controller
+
+    c.vm.provision 'run-extra-yaml', type: 'shell' do |s|
+      s.privileged = false
+      s.inline = <<-EOH
+        #!/bin/sh
+
+        EXTRA_YAML_DIR=/vagrant/custom/extra_yaml
+        if [ -d $EXTRA_YAML_DIR ]; then
+          TRIES=0
+          while ! [ $(kubectl get nodes | grep master | awk '{ print $2 }') == "Ready" ]; do
+            if [ $TRIES = 40 ]; then
+              echo "Waited 120s for master to become ready" >&2
+              exit 1
+            fi
+            TRIES=$(($TRIES+1))
+            sleep 3
+          done
+
+          kubectl apply -f $EXTRA_YAML_DIR
+        fi
+      EOH
+    end # c.vm.provision 'run-extra-yaml'
   end # config.vm.define master_vm
 
   $worker_count.times do |i|

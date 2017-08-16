@@ -52,6 +52,8 @@ The build process will look for files with these names in the `custom` directory
 * `sources.list`: override default system apt sources
 * `sources.list.kubernetes`: override default kubernetes apt repo
 
+If the directory `custom/extra_yaml` is present, this directory will be passed to `kubectl apply -f` once the master becomes ready. This can be used to deploy arbitrary manifests to the cluster.
+
 After the cluster is built the following files will be created:
 
 `kube.config`: local Kubernetes config generated during `kubeadm init` (can be used like `kubectl --kubeconfig kube.config get pods`, or `export KUBECONFIG=/path/to/kube.config`)

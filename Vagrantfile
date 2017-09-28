@@ -297,13 +297,13 @@ Vagrant.configure("2") do |config|
           if [ -f /vagrant/custom/kube-flannel-rbac.yml ]; then
             cp /vagrant/custom/kube-flannel-rbac.yml $HOME/kube-flannel-rbac.yml
           else
-            curl -s -O https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel-rbac.yml
+            curl -s -O https://raw.githubusercontent.com/coreos/flannel/master/Documentation/k8s-manifests/kube-flannel-rbac.yml
           fi
 
           if [ -f /vagrant/custom/kube-flannel.yml ]; then
             cp /vagrant/custom/kube-flannel.yml $HOME/kube-flannel.yml
           else
-            curl -s -O https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
+            curl -s -o kube-flannel.yml https://raw.githubusercontent.com/coreos/flannel/master/Documentation/k8s-manifests/kube-flannel-legacy.yml
           fi
 
           export FLANNEL_IFACE=$(ip a | grep #{$master_vm_ip} | awk '{ print $NF }')

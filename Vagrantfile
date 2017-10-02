@@ -25,7 +25,7 @@ $https_proxy = get_environment_variable('https_proxy')
 $no_proxy = get_environment_variable('no_proxy')
 $cacerts_dir = get_environment_variable('cacerts_dir')
 $network_provider = get_environment_variable('network_provider')
-$swap_size = get_environment_variable('swap_size') || 2048
+$swap_size = get_environment_variable('swap_size') || 0
 $master_cpu_count = get_environment_variable('master_cpu_count') || 1
 $master_memory_mb = get_environment_variable('master_memory_mb') || 1024
 $worker_count = get_environment_variable('worker_count') || 3
@@ -222,25 +222,27 @@ Vagrant.configure("2") do |config|
     s.inline = update_ca_certificates_script
   end unless update_ca_certificates_script.empty?
 
-  config.vm.provision 'configure-swap-space', type: 'shell' do |s|
-    s.inline = <<-EOH
-      #!/bin/bash
-      SWAP_PATH='/swap'
-      SWAP_SIZE="#{$swap_size}M"
-      # This could be a re-provision
-      if grep -qw "^${SWAP_PATH}" /proc/swaps ; then
-        swapoff "$SWAP_PATH"
-      fi
-      fallocate -l $SWAP_SIZE "$SWAP_PATH"
-      truncate -s $SWAP_SIZE "$SWAP_PATH"
-      chmod 600 "$SWAP_PATH"
-      mkswap -f "$SWAP_PATH"
-      /bin/sync
-      swapon "$SWAP_PATH"
-      if ! grep -qw "^${SWAP_PATH}" /etc/fstab ; then
-        echo "$SWAP_PATH none swap defaults 0 0" | tee -a /etc/fstab
-      fi
-    EOH
+  if $swap_size > 0
+    config.vm.provision 'configure-swap-space', type: 'shell' do |s|
+      s.inline = <<-EOH
+        #!/bin/bash
+        SWAP_PATH='/swap'
+        SWAP_SIZE="#{$swap_size}M"
+        # This could be a re-provision
+        if grep -qw "^${SWAP_PATH}" /proc/swaps ; then
+          swapoff "$SWAP_PATH"
+        fi
+        fallocate -l $SWAP_SIZE "$SWAP_PATH"
+        truncate -s $SWAP_SIZE "$SWAP_PATH"
+        chmod 600 "$SWAP_PATH"
+        mkswap -f "$SWAP_PATH"
+        /bin/sync
+        swapon "$SWAP_PATH"
+        if ! grep -qw "^${SWAP_PATH}" /etc/fstab ; then
+          echo "$SWAP_PATH none swap defaults 0 0" | tee -a /etc/fstab
+        fi
+      EOH
+    end
   end
 
   config.vm.provision 'generic-install', type: 'shell' do |s|

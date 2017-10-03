@@ -46,7 +46,7 @@ def get_kubernetes_version(context)
     if split_kube_version.length > 1
       $kubernetes_version
     else
-      split_kube_version[0]
+      split_kube_version[0] + "-00"
     end
   elsif context == :container
     "v#{split_kube_version[0]}"

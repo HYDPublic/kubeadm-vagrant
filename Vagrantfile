@@ -9,6 +9,7 @@
 require 'ipaddr'
 require 'openssl'
 require 'securerandom'
+require 'set'
 require 'uri'
 
 def get_environment_variable(envvar)
@@ -67,6 +68,18 @@ def apply_vm_hardware_customizations(provider)
   provider.customize ["modifyvm", :id, "--uart2", "0x2F8", "3"]
   provider.customize ["modifyvm", :id, "--uartmode1", "disconnected"]
   provider.customize ["modifyvm", :id, "--uartmode2", "disconnected"]
+end
+
+def compute_no_proxy_line
+  no_proxy = ["localhost", "127.0.0.1", $master_vm_ip]
+  no_proxy += $no_proxy.split(",") unless $no_proxy.nil?
+  $worker_count.times do |i|
+    split_master_ip = $master_vm_ip.split('.')
+    vm_ip = (split_master_ip[0..2] + [(split_master_ip[3].to_i)+i+1]).join('.')
+    no_proxy += [vm_ip]
+  end
+
+  Set.new(no_proxy).to_a.sort.join(",")
 end
 
 # hook extra disk creation in here
@@ -181,9 +194,7 @@ Vagrant.configure("2") do |config|
     # vagrant-proxyconf will not configure anything if everything is nil
     config.proxy.http = $http_proxy
     config.proxy.https = $https_proxy
-    unless $no_proxy.nil?
-      config.proxy.no_proxy = [$no_proxy, $master_vm_ip].join(',')
-    end
+    config.proxy.no_proxy = compute_no_proxy_line
 
     # look for another envvar that points to a directory with CA certs
     if $cacerts_dir

@@ -25,7 +25,7 @@ $http_proxy = get_environment_variable('http_proxy')
 $https_proxy = get_environment_variable('https_proxy')
 $no_proxy = get_environment_variable('no_proxy')
 $cacerts_dir = get_environment_variable('cacerts_dir')
-$network_provider = get_environment_variable('network_provider')
+$network_provider = get_environment_variable('network_provider') || 'calico'
 $swap_size = get_environment_variable('swap_size') || 0
 $master_cpu_count = get_environment_variable('master_cpu_count') || 1
 $master_memory_mb = get_environment_variable('master_memory_mb') || 1024
@@ -296,7 +296,7 @@ Vagrant.configure("2") do |config|
       EOH
     end
 
-    network_provider = $network_provider.nil? ? 'flannel' : $network_provider.downcase
+    network_provider = $network_provider.downcase
 
     fail "#{network_provider} is not a supported network provider" unless %w(flannel calico none).include?(network_provider)
 
@@ -343,7 +343,7 @@ Vagrant.configure("2") do |config|
           if [ -f /vagrant/custom/calico.yml ]; then
             cp /vagrant/custom/calico.yml $HOME/calico.yaml
           else
-            curl -s -O http://docs.projectcalico.org/v2.3/getting-started/kubernetes/installation/hosted/kubeadm/1.6/calico.yaml
+            curl -s -L -O http://docs.projectcalico.org/v2.6/getting-started/kubernetes/installation/hosted/kubeadm/1.6/calico.yaml
           fi
 
           export CALICO_NETWORK=#{pod_network}
